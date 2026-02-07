@@ -29,6 +29,8 @@ import { useMemo } from 'react';
 import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -175,9 +177,118 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const sessionUsage = useSessionUsage(sessionId);
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const experiments = useSetting('experiments');
+    const [isPickingImage, setIsPickingImage] = React.useState(false);
+
+    const isCodexSession = session.metadata?.flavor === 'codex';
 
     // Use draft hook for auto-saving message drafts
     const { clearDraft } = useDraft(sessionId, message, setMessage);
+
+    const pickAndSendImageToCodex = React.useCallback(async () => {
+        if (!isCodexSession) {
+            Modal.alert(t('common.error'), '当前仅 Codex 会话支持从 App 发送图片');
+            return;
+        }
+        if (isPickingImage) {
+            return;
+        }
+
+        setIsPickingImage(true);
+        try {
+            if (Platform.OS === 'web') {
+                Modal.alert(t('common.error'), 'Web 端暂不支持从相册选择图片上传到 Codex');
+                return;
+            }
+
+            const pickerResult = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: false,
+                base64: false,
+                quality: 1,
+                exif: false,
+            });
+            if (pickerResult.canceled || !pickerResult.assets?.[0]) {
+                return;
+            }
+
+            const asset = pickerResult.assets[0];
+            const defaultPrompt = message.trim() || '';
+            const userPrompt = await Modal.prompt(
+                '发送图片给 Codex',
+                '可选：输入你希望 Codex 对这张图片做什么（例如：解释报错、总结界面、提取信息）',
+                {
+                    placeholder: '例如：请解释这张截图中的报错，并给出修复建议',
+                    defaultValue: defaultPrompt,
+                    cancelText: t('common.cancel'),
+                    confirmText: t('common.send'),
+                }
+            );
+            if (userPrompt === null) {
+                return;
+            }
+
+            const MAX_RAW_BYTES = 350 * 1024;
+            let width = Math.min(asset.width ?? 1600, 1600);
+            let compress = 0.72;
+            let manipulated: ImageManipulator.ImageResult | null = null;
+
+            for (let attempt = 0; attempt < 4; attempt++) {
+                manipulated = await ImageManipulator.manipulateAsync(
+                    asset.uri,
+                    width ? [{ resize: { width } }] : [],
+                    {
+                        compress,
+                        format: ImageManipulator.SaveFormat.JPEG,
+                        base64: true,
+                    }
+                );
+
+                const base64 = manipulated.base64 || '';
+                const approxBytes = Math.floor((base64.length * 3) / 4);
+                if (approxBytes <= MAX_RAW_BYTES && base64.length > 0) {
+                    break;
+                }
+
+                width = Math.max(720, Math.floor(width * 0.75));
+                compress = Math.max(0.45, compress - 0.12);
+            }
+
+            if (!manipulated?.base64) {
+                throw new Error('无法读取图片数据');
+            }
+
+            const uploadPath = `.happy-attachments/happy-image-${Date.now()}.jpg`;
+
+            const mkdirCommand = `node -e "require('fs').mkdirSync('.happy-attachments',{recursive:true})"`;
+            await sync.sessionRpc(sessionId, 'bash', { command: mkdirCommand, cwd: '.', timeout: 15000 });
+
+            const writeResult = await sync.sessionRpc(sessionId, 'writeFile', {
+                path: uploadPath,
+                content: manipulated.base64,
+                expectedHash: null
+            }) as any;
+            if (!writeResult?.success) {
+                throw new Error(writeResult?.error || '写入图片文件失败');
+            }
+
+            const instruction = userPrompt.trim()
+                ? `我上传了一张图片到工作目录：${uploadPath}\n\n请把它作为图片输入来分析：\n${userPrompt.trim()}`
+                : `我上传了一张图片到工作目录：${uploadPath}\n\n请把它作为图片输入来分析并描述其内容。`;
+
+            if (message.trim()) {
+                setMessage('');
+                clearDraft();
+            }
+
+            await sync.sendMessage(sessionId, instruction);
+            trackMessageSent();
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            Modal.alert(t('common.error'), `发送图片失败：${msg}`);
+        } finally {
+            setIsPickingImage(false);
+        }
+    }, [clearDraft, isCodexSession, isPickingImage, message, sessionId]);
 
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
@@ -278,6 +389,8 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             value={message}
             onChangeText={setMessage}
             sessionId={sessionId}
+            onPickImage={pickAndSendImageToCodex}
+            isPickingImage={isPickingImage}
             permissionMode={permissionMode}
             onPermissionModeChange={updatePermissionMode}
             modelMode={modelMode as any}

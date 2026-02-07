@@ -21,6 +21,10 @@ export function startSocket(app: Fastify) {
             credentials: true,
             allowedHeaders: ["*"]
         },
+        // Default is 1e6 (1MB). RPC/file-transfer flows (e.g. sending images to the
+        // CLI workspace) can exceed this after encryption + base64 overhead.
+        // Keep this bounded to reduce DoS risk, but large enough for common screenshots.
+        maxHttpBufferSize: 10 * 1024 * 1024, // 10MB
         transports: ['websocket', 'polling'],
         pingTimeout: 45000,
         pingInterval: 15000,

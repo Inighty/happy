@@ -30,6 +30,8 @@ interface AgentInputProps {
     onChangeText: (text: string) => void;
     sessionId?: string;
     onSend: () => void;
+    onPickImage?: () => void | Promise<void>;
+    isPickingImage?: boolean;
     sendIcon?: React.ReactNode;
     onMicPress?: () => void;
     isMicActive?: boolean;
@@ -303,6 +305,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     // Use metadata.flavor for existing sessions, agentType prop for new sessions
     const isCodex = props.metadata?.flavor === 'codex' || props.agentType === 'codex';
     const isGemini = props.metadata?.flavor === 'gemini' || props.agentType === 'gemini';
+    const canPickImage = !!props.sessionId && !!props.onPickImage && isCodex;
 
     // Profile data
     const profiles = useSetting('profiles');
@@ -1082,6 +1085,41 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                     </Shaker>
                                 )}
 
+                                {/* Image upload (Codex only for now) */}
+                                {canPickImage && (
+                                    <Pressable
+                                        onPress={() => {
+                                            hapticsLight();
+                                            props.onPickImage?.();
+                                        }}
+                                        hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                                        disabled={props.isPickingImage || props.isSendDisabled || props.isSending}
+                                        style={(p) => ({
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            borderRadius: Platform.select({ default: 16, android: 20 }),
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 6,
+                                            justifyContent: 'center',
+                                            height: 32,
+                                            opacity: (props.isPickingImage || props.isSendDisabled || props.isSending) ? 0.4 : (p.pressed ? 0.7 : 1),
+                                        })}
+                                    >
+                                        {props.isPickingImage ? (
+                                            <ActivityIndicator
+                                                size="small"
+                                                color={theme.colors.button.secondary.tint}
+                                            />
+                                        ) : (
+                                            <Ionicons
+                                                name="image-outline"
+                                                size={18}
+                                                color={theme.colors.button.secondary.tint}
+                                            />
+                                        )}
+                                    </Pressable>
+                                )}
+
                                 {/* Git Status Badge */}
                                 <GitStatusButton sessionId={props.sessionId} onPress={props.onFileViewerPress} />
                                 </View>
@@ -1112,7 +1150,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                                 props.onMicPress?.();
                                             }
                                         }}
-                                        disabled={props.isSendDisabled || props.isSending || (!hasText && !props.onMicPress)}
+                                        disabled={props.isSendDisabled || props.isSending || props.isPickingImage || (!hasText && !props.onMicPress)}
                                     >
                                         {props.isSending ? (
                                             <ActivityIndicator

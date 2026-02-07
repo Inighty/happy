@@ -299,6 +299,17 @@ class Sync {
         });
     }
 
+    /**
+     * Session-scoped RPC helper.
+     *
+     * This calls the daemon/session-side RPC handler through the Happy server and
+     * uses session encryption. It is useful for "uploading" data directly to the
+     * machine workspace without storing it on the server (E2EE).
+     */
+    async sessionRpc<R = any, A = any>(sessionId: string, method: string, params: A): Promise<R> {
+        return await apiSocket.sessionRPC<R, A>(sessionId, method, params);
+    }
+
     applySettings = (delta: Partial<Settings>) => {
         storage.getState().applySettingsLocal(delta);
 

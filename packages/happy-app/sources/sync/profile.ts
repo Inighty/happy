@@ -7,10 +7,10 @@ import * as z from 'zod';
 export const GitHubProfileSchema = z.object({
     id: z.number(),
     login: z.string(),
-    name: z.string(),
+    name: z.string().nullable().optional(),
     avatar_url: z.string(),
-    email: z.string().optional(),
-    bio: z.string().nullable()
+    email: z.string().nullable().optional(),
+    bio: z.string().nullable().optional()
 });
 
 export const ImageRefSchema = z.object({
