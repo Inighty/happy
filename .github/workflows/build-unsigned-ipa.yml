@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build-unsigned-ipa:
-    runs-on: macos-latest
+    runs-on: macos-latest-xlarge
     timeout-minutes: 60
     env:
       COCOAPODS_DISABLE_STATS: 'true'
@@ -91,6 +91,10 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Happydev.xcarchive" \
+            -parallelizeTargets \
+            -jobs "$(sysctl -n hw.ncpu)" \
+            -showBuildTimingSummary \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
