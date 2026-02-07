@@ -9,6 +9,10 @@ on:
       - '.github/workflows/build-unsigned-ipa.yml'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-unsigned-ipa:
     runs-on: macos-latest
@@ -19,6 +23,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -35,17 +41,33 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Install CocoaPods CLI
+      - name: Ensure CocoaPods CLI
         run: |
-          gem install cocoapods --no-document
+          if ! command -v pod >/dev/null 2>&1; then
+            gem install cocoapods --no-document
+          fi
           pod --version
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            packages/happy-app/ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('packages/happy-app/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
 
       - name: Install iOS Pods
         run: |
           cd packages/happy-app/ios
-          pod install --repo-update --verbose || {
-            echo "pod install failed, attempting RevenueCat pod lockfile reconciliation..."
-            pod update PurchasesHybridCommonUI PurchasesHybridCommon --repo-update --verbose
+          pod install --deployment --verbose || {
+            echo "pod install --deployment failed, retrying without deployment..."
+            pod install --verbose || {
+              echo "pod install failed, trying pod repo update as last resort..."
+              pod repo update
+              pod install --verbose
+            }
           }
 
       - name: Build iOS archive (unsigned)
@@ -61,7 +83,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            clean archive
+            archive
 
       - name: Package unsigned IPA
         run: |
